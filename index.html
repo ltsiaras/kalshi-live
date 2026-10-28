@@ -226,10 +226,13 @@
     const avgPrice = trades.length ? trades.reduce((s, t) => s + (t.avgPrice || 0), 0) / trades.length : null;
     const claimed = settled.filter((t) => t.p).map((t) => t.p);
     const deployed = runs.filter((r) => r.mode === "live").reduce((s, r) => s + (r.deployed || 0), 0);
-    const paper = feed.mode === "paper";
+    // The account is live if any run traded for real in the last day: a manual
+    // dry run in between doesn't change that.
+    const mode = runs.some((r) => r.mode === "live" && Date.now() - Date.parse(r.startedAt) < 24 * 3600e3) ? "live" : feed.mode;
+    const paper = mode === "paper";
 
     $("mode").classList.toggle("paper", paper);
-    $("mode-text").textContent = paper ? "PAPER" : feed.mode === "dry" ? "DRY RUN" : "LIVE";
+    $("mode-text").textContent = paper ? "PAPER" : mode === "dry" ? "DRY RUN" : "LIVE";
     const last = runs.at(-1);
     $("last-run").textContent = last ? `last run ${when(last.startedAt)} ET` : "";
     $("next-run").textContent = `· next ~${et(nextRun(), { hour: "numeric", minute: "2-digit" })} ET`;
