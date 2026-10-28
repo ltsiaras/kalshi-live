@@ -1,0 +1,68 @@
+# The radar, for the public dashboard repo (kalshi-live): copy this file there
+# as .github/workflows/radar.yml. Every 15 minutes it sweeps every open
+# non-sports Kalshi market that settles within 48 hours, using only public
+# data, and starts a bot run when something new turns up that code can see is
+# mispriced: a daily high or low the station's readings have already settled,
+# or a favourite that was 93¢ or more a day ago and is 70–89¢ now. At most 3
+# runs a day, none within 45 minutes of another or next to a scheduled run.
+# No Kalshi keys and no Claude here.
+# Public repos get free Actions minutes, so the sweeps cost nothing.
+#
+# It runs the bot's own code (bot repo, kalshi/bin/radar.mjs) and publishes
+# radar.json for the dashboard. Setup is in kalshi/README.md: a BOT_TOKEN
+# secret that can read the bot repo's code and start its workflow.
+
+name: Kalshi radar
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: radar
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      BOT_REPO: ${{ vars.BOT_REPO || 'lukewtsiaras2/kalshi-bot' }}
+    steps:
+      - name: Check for the token
+        if: env.BOT_TOKEN == ''
+        run: echo "::warning::Add a BOT_TOKEN secret (see kalshi/README.md) to turn the radar on."
+
+      - uses: actions/checkout@v5
+        if: env.BOT_TOKEN != ''
+
+      - uses: actions/checkout@v5
+        if: env.BOT_TOKEN != ''
+        with:
+          repository: ${{ env.BOT_REPO }}
+          token: ${{ secrets.BOT_TOKEN }}
+          path: bot
+          sparse-checkout: kalshi
+
+      - uses: actions/setup-node@v5
+        if: env.BOT_TOKEN != ''
+        with:
+          node-version: 22
+
+      - name: Sweep, and start a run if something new turned up
+        if: env.BOT_TOKEN != ''
+        run: node bot/kalshi/bin/radar.mjs --site .
+
+      - name: Publish radar.json
+        if: env.BOT_TOKEN != ''
+        run: |
+          git config user.name "kalshi-radar" && git config user.email "kalshi-radar@users.noreply.github.com"
+          git add radar.json 2>/dev/null || exit 0
+          git diff --cached --quiet && exit 0
+          git commit -q -m "Radar"
+          git push -q || { git pull -q --rebase && git push -q; }
