@@ -94,10 +94,16 @@
   .how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 14px; }
   .how .card-body { color: var(--dim); font-size: 14px; }
   .how b { color: var(--text); display: block; margin-bottom: 4px; }
+  .grid.even { grid-template-columns: 1fr 1fr; margin-top: 14px; }
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+  .list li:first-child { padding-top: 0; }
+  .list li:last-child { border-bottom: 0; padding-bottom: 0; }
+  .list .empty { padding: 12px 0; text-align: left; }
   footer { color: var(--faint); font-size: 12px; text-align: center; margin-top: 28px; }
   footer a { color: var(--dim); }
 
-  @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(3, 1fr); } .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(3, 1fr); } .grid, .grid.even { grid-template-columns: 1fr; } }
   @media (max-width: 640px) {
     .kpis { grid-template-columns: repeat(2, 1fr); } .how { grid-template-columns: 1fr; }
     .kpi .value { font-size: 20px; } td, th { padding: 10px 12px; } .hide-sm { display: none; } .show-sm { display: inline; }
@@ -151,10 +157,21 @@
     </table></div>
   </section>
 
+  <section class="grid even" aria-label="Resting bids and radar">
+    <div class="card">
+      <div class="card-head"><h2>Resting bids</h2><span class="num q" id="resting-note"></span></div>
+      <div class="card-body"><ul class="list" id="resting"></ul></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Radar</h2><span class="num q" id="radar-note"></span></div>
+      <div class="card-body"><ul class="list" id="radar"></ul></div>
+    </div>
+  </section>
+
   <section class="how">
-    <div class="card"><div class="card-body"><b>1 · Scan</b>Five times a day it reads every open Kalshi market and shortlists favourites priced 90–98¢: the other side of a 2–10¢ longshot.</div></div>
+    <div class="card"><div class="card-body"><b>1 · Scan</b>Six times a day, and whenever its radar spots something, it reads every open Kalshi market and shortlists favourites priced 90–98¢ (the other side of a 2–10¢ longshot), plus any a weather station has already settled.</div></div>
     <div class="card"><div class="card-body"><b>2 · Research</b>Live data for each one (weather stations, spot prices, scores). It buys only if the evidence puts the longshot's chance at half its price or less.</div></div>
-    <div class="card"><div class="card-body"><b>3 · Size</b>A tenth of the account per run, more on the strongest bets, and a loss brake that pauses trading after a cluster of losses.</div></div>
+    <div class="card"><div class="card-body"><b>3 · Size</b>A quarter of the account per run, more on the biggest edges, and a loss brake that pauses trading after a cluster of losses. Where nobody is selling a settled outcome cheaply, it leaves a bid on Kalshi for longshot buyers to fill.</div></div>
   </section>
 
   <footer>Published by the bot after every run. This page holds no keys and can't trade. Not financial advice. <span id="updated"></span></footer>
@@ -171,8 +188,10 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const clock = (s) => s == null ? "" : `+${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
-  // GitHub's cron, in UTC: 9:40am, 4:10pm, 6:40pm, 9:40pm and 11:25pm ET in daylight time.
-  const CRON_UTC = [[13, 40], [20, 10], [22, 40], [1, 40], [3, 25]];
+  // When scheduled runs actually start, in UTC: 9:35am, 3:35pm, 5:35pm, 7:35pm,
+  // 9:35pm and 11:35pm ET in winter. The cron fires 30 minutes earlier, because
+  // GitHub starts late. The radar can start others in between.
+  const CRON_UTC = [[14, 35], [20, 35], [22, 35], [0, 35], [2, 35], [4, 35]];
   function nextRun(now = new Date()) {
     const c = CRON_UTC.flatMap(([h, m]) => [0, 1].map((d) => Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + d, h, m)));
     return new Date(Math.min(...c.filter((t) => t > now)));
@@ -192,6 +211,7 @@
       if (shown) return;
       $("last-run").textContent = "No data yet: the first run after setup publishes it.";
       $("kpis").innerHTML = ""; $("console").innerHTML = '<div class="empty">Waiting for the first run.</div>';
+      renderResting([]);
     }
   }
 
@@ -228,6 +248,31 @@
     drawChart(settled);
     renderTrades(trades);
     setupConsole(runs);
+    renderResting(feed.resting || []);
+  }
+
+  const cents = (x) => Math.round(x * 100) + "¢";
+  function renderResting(bids) {
+    const up = bids.filter((b) => Date.parse(b.expiresAt) > Date.now());
+    $("resting-note").textContent = up.length ? `${up.length} on Kalshi now` : "";
+    $("resting").innerHTML = up.length ? up.map((b) => `<li><div class="bet">${esc(b.side.toUpperCase())} · ${esc(b.yesMeans || b.ticker)} · bid ${cents(b.price)} × ${b.contracts}</div><div class="q">${esc(b.question || b.ticker)} · up until ${when(b.expiresAt)} ET${b.p ? ` · claimed p ${b.p.toFixed(3)}` : ""}</div></li>`).join("")
+      : '<li class="empty">None up right now. When an outcome is settled but nobody is selling it cheaply, the bot leaves a bid on Kalshi for a while, and longshot buyers fill it.</li>';
+  }
+
+  // The radar sweeps Kalshi every 15 minutes and publishes radar.json when it changes.
+  async function loadRadar() {
+    try {
+      const res = await fetch("radar.json?t=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) throw new Error(res.status);
+      const r = await res.json();
+      $("radar-note").textContent = `swept ${when(r.asOf)} ET`;
+      const head = `<li><div>${Number(r.watched).toLocaleString("en-US")} non-sports markets that settle within 48 hours, ${r.weatherMarkets} weather markets checked against their stations.</div><div class="q">${r.runsStartedLast24h} run${r.runsStartedLast24h === 1 ? "" : "s"} started by the radar in the last 24 hours · ${esc(r.decision?.why || "")}</div></li>`;
+      const flags = (r.flagged || []).slice(0, 8).map((f) => `<li><div class="bet">${f.kind === "decided" ? "Settled by readings" : "Fallen favourite"} · ${esc(f.side.toUpperCase())} · ${esc(f.yesMeans || f.ticker)} at ${cents(f.ask)}</div><div class="q">${esc(f.market || f.ticker)} · ${esc(f.note || "")}</div></li>`);
+      $("radar").innerHTML = head + (flags.length ? flags.join("") : '<li class="empty">Nothing flagged on the last sweep.</li>');
+    } catch {
+      $("radar-note").textContent = "";
+      $("radar").innerHTML = '<li class="empty">The radar publishes here once it\'s switched on.</li>';
+    }
   }
 
   function drawChart(settled) {
@@ -330,7 +375,8 @@
   }
 
   load();
-  setInterval(load, 5 * 60e3);
+  loadRadar();
+  setInterval(() => { load(); loadRadar(); }, 5 * 60e3);
 })();
 </script>
 </body>
