@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lottery Fade · live</title>
+<meta name="description" content="An AI agent that takes the other side of lottery-ticket bets on Kalshi. Every trade, its reasoning and its result, published after each run.">
+<style>
+  :root {
+    --bg: #07090d; --panel: #0d1117; --panel-2: #121821; --line: #1d2633;
+    --text: #e6edf3; --dim: #8b949e; --faint: #4d5866;
+    --green: #3fb950; --green-bg: rgba(63, 185, 80, .12); --red: #f85149; --red-bg: rgba(248, 81, 73, .12);
+    --amber: #d29922; --cyan: #58a6ff;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); }
+  body { min-height: 100vh; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 24px 16px 48px; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 20px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 36px; height: 36px; border-radius: 9px; background: var(--green-bg); border: 1px solid rgba(63,185,80,.4); display: grid; place-items: center; color: var(--green); font: 700 18px var(--mono); }
+  h1 { font-size: 22px; letter-spacing: .02em; margin: 0; }
+  .tagline { color: var(--dim); font-size: 14px; margin: 2px 0 0; }
+  .status { display: flex; align-items: center; gap: 10px; font: 13px var(--mono); color: var(--dim); flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(63,185,80,.6); animation: pulse 2s infinite; }
+  .pill.paper .dot { background: var(--amber); animation: none; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(63,185,80,.55); } 70% { box-shadow: 0 0 0 8px rgba(63,185,80,0); } 100% { box-shadow: 0 0 0 0 rgba(63,185,80,0); } }
+
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+  .kpi .label { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  .kpi .value { font: 600 24px/1.25 var(--mono); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi .sub { color: var(--dim); font: 12px var(--mono); margin-top: 2px; }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+
+  .grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+  .card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .card-head h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0; font-weight: 600; }
+  .card-body { padding: 16px; }
+
+  #chart { width: 100%; height: 300px; display: block; }
+  #chart-box .empty { height: 300px; display: grid; place-items: center; padding: 0 16px; }
+  #chart text { fill: var(--faint); font: 11px var(--mono); }
+  .empty { color: var(--dim); font: 13px var(--mono); padding: 40px 0; text-align: center; }
+
+  .console { background: #05070a; height: 360px; overflow-y: auto; padding: 12px 14px; font: 12.5px/1.55 var(--mono); border-radius: 0 0 12px 12px; scroll-behavior: smooth; }
+  .ln { display: grid; grid-template-columns: 52px 18px 1fr; gap: 4px; padding: 1px 0; }
+  .ln .x { overflow-wrap: anywhere; min-width: 0; }
+  .ln .t { color: var(--faint); }
+  .ln .k { color: var(--faint); }
+  .ln.think .x { color: var(--text); }
+  .ln.think .k { color: var(--cyan); }
+  .ln.tool .x { color: var(--cyan); opacity: .85; }
+  .ln.result .x { color: var(--dim); }
+  .ln.buy .x, .ln.buy .k { color: var(--green); font-weight: 600; }
+  .ln.refused .x, .ln.refused .k { color: var(--red); }
+  .ln.reject .x, .ln.reject .k { color: var(--amber); }
+  .ln.error .x, .ln.error .k { color: var(--amber); }
+  .ln.head .x { color: var(--text); font-weight: 600; }
+  .caret { display: inline-block; width: 7px; height: 14px; background: var(--green); vertical-align: -2px; margin-left: 2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  select, button { font: 12px var(--mono); color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--faint); }
+  .controls { display: flex; gap: 8px; align-items: center; min-width: 0; }
+  .controls select { max-width: 190px; }
+  .show-sm { display: none; }
+
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tab { border-radius: 999px; padding: 5px 12px; }
+  .tab[aria-selected="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .note { color: var(--faint); font-size: 12px; padding: 8px 16px 0; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; color: var(--dim); font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .08em; padding: 10px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr.trade { cursor: pointer; }
+  tr.trade:hover td { background: var(--panel-2); }
+  .q { color: var(--dim); font-size: 12px; }
+  .bet { font-weight: 600; }
+  .badge { display: inline-block; font: 600 11px var(--mono); padding: 2px 8px; border-radius: 6px; letter-spacing: .04em; white-space: nowrap; }
+  .badge.won { background: var(--green-bg); color: var(--green); }
+  .badge.lost { background: var(--red-bg); color: var(--red); }
+  .badge.open { background: rgba(88,166,255,.12); color: var(--cyan); }
+  .badge.paper { background: rgba(210,153,34,.14); color: var(--amber); }
+  tr.why td { color: var(--dim); font: 12.5px/1.6 var(--mono); background: #0a0e13; }
+  .right { text-align: right; }
+
+  .how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 14px; }
+  .how .card-body { color: var(--dim); font-size: 14px; }
+  .how b { color: var(--text); display: block; margin-bottom: 4px; }
+  footer { color: var(--faint); font-size: 12px; text-align: center; margin-top: 28px; }
+  footer a { color: var(--dim); }
+
+  @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(3, 1fr); } .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); } .how { grid-template-columns: 1fr; }
+    .kpi .value { font-size: 20px; } td, th { padding: 10px 12px; } .hide-sm { display: none; } .show-sm { display: inline; }
+    .console { height: 320px; font-size: 12px; } .ln { grid-template-columns: 44px 14px 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) { .dot, .caret { animation: none; } .console { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo" aria-hidden="true">LF</div>
+      <div>
+        <h1>LOTTERY FADE</h1>
+        <p class="tagline">An AI agent that takes the other side of lottery-ticket bets on Kalshi.</p>
+      </div>
+    </div>
+    <div class="status">
+      <span class="pill" id="mode"><span class="dot"></span><span id="mode-text">LIVE</span></span>
+      <span id="last-run">loading…</span>
+      <span id="next-run"></span>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis" aria-label="Headline numbers"></section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="card-head"><h2>Realized P&amp;L</h2><span class="num q" id="chart-note"></span></div>
+      <div class="card-body" id="chart-box"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Agent console</h2>
+        <div class="controls"><select id="run-pick" aria-label="Pick a run to replay"></select><button id="replay" type="button">Replay</button></div>
+      </div>
+      <div class="console" id="console" aria-live="off"></div>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Trades">
+    <div class="card-head">
+      <h2>Trades</h2>
+      <div class="tabs" role="tablist" id="tabs"></div>
+    </div>
+    <p class="note">Tabs filter this list only. The numbers at the top always count every trade.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th class="hide-sm">Placed (ET)</th><th>Market</th><th class="right">Price</th><th class="right hide-sm">Size</th><th class="right hide-sm">Claimed p</th><th class="right">Result</th></tr></thead>
+      <tbody id="trades"></tbody>
+    </table></div>
+  </section>
+
+  <section class="how">
+    <div class="card"><div class="card-body"><b>1 · Scan</b>Five times a day it reads every open Kalshi market and shortlists favourites priced 90–98¢: the other side of a 2–10¢ longshot.</div></div>
+    <div class="card"><div class="card-body"><b>2 · Research</b>Live data for each one (weather stations, spot prices, scores). It buys only if the evidence puts the longshot's chance at half its price or less.</div></div>
+    <div class="card"><div class="card-body"><b>3 · Size</b>A tenth of the account per run, more on the strongest bets, and a loss brake that pauses trading after a cluster of losses.</div></div>
+  </section>
+
+  <footer>Published by the bot after every run. This page holds no keys and can't trade. Not financial advice. <span id="updated"></span></footer>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const et = (iso, opts) => new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", ...opts });
+  const when = (iso) => et(iso, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const usd = (x, sign) => (sign && x > 0 ? "+" : x < 0 ? "−" : "") + "$" + Math.abs(x || 0).toFixed(2);
+  const pct = (x) => (x * 100).toFixed(1) + "%";
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const clock = (s) => s == null ? "" : `+${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+  // GitHub's cron, in UTC: 9:40am, 4:10pm, 6:40pm, 9:40pm and 11:25pm ET in daylight time.
+  const CRON_UTC = [[13, 40], [20, 10], [22, 40], [1, 40], [3, 25]];
+  function nextRun(now = new Date()) {
+    const c = CRON_UTC.flatMap(([h, m]) => [0, 1].map((d) => Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + d, h, m)));
+    return new Date(Math.min(...c.filter((t) => t > now)));
+  }
+
+  // Re-checks every few minutes, and redraws only when a run has published.
+  let shown = null;
+  async function load() {
+    try {
+      const res = await fetch("feed.json?t=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) throw new Error(res.status);
+      const feed = await res.json();
+      if (feed.updatedAt === shown) return;
+      shown = feed.updatedAt;
+      render(feed);
+    } catch (e) {
+      if (shown) return;
+      $("last-run").textContent = "No data yet: the first run after setup publishes it.";
+      $("kpis").innerHTML = ""; $("console").innerHTML = '<div class="empty">Waiting for the first run.</div>';
+    }
+  }
+
+  function render(feed) {
+    const trades = feed.trades || [], runs = feed.runs || [];
+    const settled = trades.filter((t) => t.status === "won" || t.status === "lost");
+    const won = settled.filter((t) => t.status === "won");
+    const open = trades.filter((t) => t.status === "open");
+    const pnl = settled.reduce((s, t) => s + (t.pnl || 0), 0);
+    const nw = feed.account?.netWorth;
+    const start = runs.find((r) => r.mode === "live")?.netWorth ?? (nw != null ? nw - pnl : null);
+    const avgPrice = trades.length ? trades.reduce((s, t) => s + (t.avgPrice || 0), 0) / trades.length : null;
+    const claimed = settled.filter((t) => t.p).map((t) => t.p);
+    const deployed = runs.filter((r) => r.mode === "live").reduce((s, r) => s + (r.deployed || 0), 0);
+    const paper = feed.mode === "paper";
+
+    $("mode").classList.toggle("paper", paper);
+    $("mode-text").textContent = paper ? "PAPER" : feed.mode === "dry" ? "DRY RUN" : "LIVE";
+    const last = runs.at(-1);
+    $("last-run").textContent = last ? `last run ${when(last.startedAt)} ET` : "";
+    $("next-run").textContent = `· next ~${et(nextRun(), { hour: "numeric", minute: "2-digit" })} ET`;
+    $("updated").textContent = feed.updatedAt ? `Updated ${when(feed.updatedAt)} ET.` : "";
+
+    const kpi = (label, value, sub, cls = "") => `<div class="kpi"><div class="label">${label}</div><div class="value ${cls}">${value}</div><div class="sub">${sub || "&nbsp;"}</div></div>`;
+    $("kpis").innerHTML = [
+      kpi("Account", nw != null ? usd(nw) : "–", feed.account?.openPositionsCost ? `${usd(feed.account.openPositionsCost)} in open bets` : ""),
+      kpi("Realized P&L", usd(pnl, true), start ? `${pnl >= 0 ? "+" : ""}${(pnl / start * 100).toFixed(2)}% of ${usd(start)}` : "", pnl > 0 ? "pos" : pnl < 0 ? "neg" : ""),
+      kpi("Win rate", settled.length ? pct(won.length / settled.length) : "–", `${won.length} won · ${settled.length - won.length} lost`),
+      kpi("Bets", trades.length, `${settled.length} settled · ${open.length} open`),
+      kpi("Avg price paid", avgPrice ? (avgPrice * 100).toFixed(1) + "¢" : "–", claimed.length ? `claimed p ${pct(claimed.reduce((a, b) => a + b, 0) / claimed.length)}` : "pays $1 if right"),
+      kpi("Runs", runs.length, deployed ? `${usd(deployed)} deployed` : ""),
+    ].join("");
+
+    drawChart(settled);
+    renderTrades(trades);
+    setupConsole(runs);
+  }
+
+  function drawChart(settled) {
+    const box = $("chart-box");
+    const pts = settled.filter((t) => t.settledAt).sort((a, b) => a.settledAt.localeCompare(b.settledAt));
+    if (!pts.length) { box.innerHTML = '<div class="empty">The first bets are still open. The curve starts when they settle.</div>'; $("chart-note").textContent = ""; return; }
+    box.innerHTML = '<svg id="chart" role="img" aria-label="Cumulative profit and loss over time"></svg>';
+    const svg = $("chart");
+    let cum = 0;
+    const series = [{ x: Date.parse(pts[0].settledAt) - 3600e3, y: 0 }, ...pts.map((t) => ({ x: Date.parse(t.settledAt), y: (cum += t.pnl || 0), t }))];
+    const W = svg.clientWidth || 700, H = 300, L = 54, R = 12, T = 12, B = 26;
+    const xs = series.map((p) => p.x), ys = series.map((p) => p.y);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 3600e3);
+    const yMin = Math.min(0, ...ys), yMax = Math.max(0.01, ...ys), pad = (yMax - yMin) * 0.12 || 1;
+    const X = (x) => L + (x - x0) / (x1 - x0) * (W - L - R);
+    const Y = (y) => T + (yMax + pad - y) / (yMax - yMin + 2 * pad) * (H - T - B);
+    const step = series.map((p, i) => (i ? `H${X(p.x).toFixed(1)}V${Y(p.y).toFixed(1)}` : `M${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`)).join("");
+    const area = `${step}V${Y(Math.min(0, yMin)).toFixed(1)}H${X(series[0].x).toFixed(1)}Z`;
+    const color = cum >= 0 ? "var(--green)" : "var(--red)";
+    const ticks = [yMin, 0, yMax].filter((v, i, a) => a.indexOf(v) === i);
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = `
+      <defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${cum >= 0 ? "#3fb950" : "#f85149"}" stop-opacity=".28"/><stop offset="1" stop-color="${cum >= 0 ? "#3fb950" : "#f85149"}" stop-opacity="0"/></linearGradient></defs>
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1d2633" ${v === 0 ? "" : 'stroke-dasharray="3 4"'}/><text x="${L - 8}" y="${Y(v) + 4}" text-anchor="end">${usd(v, true)}</text>`).join("")}
+      <text x="${L}" y="${H - 6}">${when(new Date(x0).toISOString())}</text><text x="${W - R}" y="${H - 6}" text-anchor="end">${when(new Date(x1).toISOString())}</text>
+      <path d="${area}" fill="url(#g)"/>
+      <path d="${step}" fill="none" stroke="${color}" stroke-width="2"/>
+      ${series.slice(1).map((p) => `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="4" fill="${p.t.status === "won" ? "#3fb950" : "#f85149"}" stroke="#0d1117" stroke-width="2"><title>${esc((p.t.question || p.t.ticker) + " · " + usd(p.t.pnl, true))}</title></circle>`).join("")}`;
+    $("chart-note").textContent = `${usd(cum, true)} over ${pts.length} settled bet${pts.length === 1 ? "" : "s"}`;
+  }
+
+  let tab = "all";
+  function renderTrades(trades) {
+    const groups = { all: trades, won: trades.filter((t) => t.status === "won"), open: trades.filter((t) => t.status === "open"), lost: trades.filter((t) => t.status === "lost") };
+    $("tabs").innerHTML = Object.entries(groups).map(([k, v]) => `<button class="tab" role="tab" type="button" aria-selected="${k === tab}" data-tab="${k}">${k[0].toUpperCase() + k.slice(1)} ${v.length}</button>`).join("");
+    $("tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) { tab = b.dataset.tab; renderTrades(trades); } };
+    const rows = [...groups[tab]].reverse();
+    $("trades").innerHTML = rows.length ? rows.map((t, i) => {
+      const result = t.mode === "paper" ? '<span class="badge paper">PAPER</span>'
+        : t.status === "won" ? `<span class="badge won">WON ${usd(t.pnl, true)}</span>`
+        : t.status === "lost" ? `<span class="badge lost">LOST ${usd(t.pnl, true)}</span>`
+        : '<span class="badge open">OPEN</span>';
+      return `<tr class="trade" data-i="${i}"><td class="num q hide-sm">${t.placedAt ? when(t.placedAt) : ""}</td>
+        <td><div class="bet">${esc((t.side || "").toUpperCase())} · ${esc(t.yesMeans || t.ticker)}</div><div class="q">${esc(t.question || t.ticker)}<span class="show-sm">${t.placedAt ? " · " + when(t.placedAt) : ""}</span></div></td>
+        <td class="right num">${t.avgPrice ? (t.avgPrice * 100).toFixed(1) + "¢" : ""}</td>
+        <td class="right num hide-sm">${t.contracts ?? ""} · ${usd(t.cost)}</td>
+        <td class="right num hide-sm">${t.p ? t.p.toFixed(3) : ""}${t.grade ? ` <span class="q">${esc(t.grade)}</span>` : ""}</td>
+        <td class="right">${result}</td></tr>
+        <tr class="why" data-why="${i}" hidden><td colspan="6">${t.why ? esc(t.why) : "Reasoning is published for trades placed after the dashboard went live."}</td></tr>`;
+    }).join("") : `<tr><td colspan="6" class="empty">Nothing here yet.</td></tr>`;
+    $("trades").onclick = (e) => { const r = e.target.closest("tr.trade"); if (r) { const w = $("trades").querySelector(`[data-why="${r.dataset.i}"]`); w.hidden = !w.hidden; } };
+  }
+
+  // Replays a run's steps at a readable pace, with Claude's notes typed out.
+  let timer = null;
+  function setupConsole(runs) {
+    const withLog = runs.filter((r) => r.console?.length).reverse();
+    const pick = $("run-pick");
+    pick.innerHTML = withLog.map((r, i) => `<option value="${i}">${when(r.startedAt)} · ${r.trades} trade${r.trades === 1 ? "" : "s"}</option>`).join("");
+    const play = () => replay(withLog[Number(pick.value) || 0]);
+    pick.onchange = play; $("replay").onclick = play;
+    if (withLog.length) play(); else $("console").innerHTML = '<div class="empty">No run to replay yet.</div>';
+  }
+
+  function replay(run) {
+    clearTimeout(timer);
+    const box = $("console");
+    box.innerHTML = "";
+    if (!run) return;
+    const icon = { think: "◆", tool: "›", result: " ", buy: "✓", refused: "✕", reject: "✕", error: "!", head: "▸" };
+    const lines = [
+      { t: 0, kind: "head", text: `Run ${when(run.startedAt)} ET · ${run.mode.toUpperCase()} · budget $${(run.budget || 0).toFixed(2)}` },
+      ...run.console,
+      ...(run.rejected?.length ? [{ kind: "head", text: "Passed on:" }, ...run.rejected.map((x) => ({ kind: "reject", text: x }))] : []),
+      { kind: "head", text: `Done: ${run.trades} trade${run.trades === 1 ? "" : "s"}, $${(run.deployed || 0).toFixed(2)} deployed${run.minutes ? ` in ${run.minutes} min` : ""}.` },
+    ];
+    const add = (l) => {
+      const el = document.createElement("div");
+      el.className = "ln " + l.kind;
+      el.innerHTML = `<span class="t">${clock(l.t)}</span><span class="k">${icon[l.kind] || " "}</span><span class="x"></span>`;
+      box.appendChild(el);
+      return el.querySelector(".x");
+    };
+    if (reduceMotion) { lines.forEach((l) => (add(l).textContent = l.text)); return; }
+    let i = 0;
+    const next = () => {
+      if (i >= lines.length) { const c = document.createElement("span"); c.className = "caret"; box.lastChild?.querySelector(".x")?.appendChild(c); timer = setTimeout(() => replay(run), 9000); return; }
+      const l = lines[i++], x = add(l);
+      box.scrollTop = box.scrollHeight;
+      if (l.kind === "think") {
+        let n = 0;
+        const type = () => { n = Math.min(l.text.length, n + 3); x.textContent = l.text.slice(0, n); box.scrollTop = box.scrollHeight; timer = n < l.text.length ? setTimeout(type, 12) : setTimeout(next, 500); };
+        type();
+      } else {
+        x.textContent = l.text;
+        timer = setTimeout(next, l.kind === "tool" ? 260 : l.kind === "buy" ? 900 : 380);
+      }
+    };
+    next();
+  }
+
+  load();
+  setInterval(load, 5 * 60e3);
+})();
+</script>
+</body>
+</html>
