@@ -100,6 +100,19 @@
   .list li:first-child { padding-top: 0; }
   .list li:last-child { border-bottom: 0; padding-bottom: 0; }
   .list .empty { padding: 12px 0; text-align: left; }
+  .proof { margin-bottom: 14px; }
+  .proof .claim { color: var(--dim); font-size: 14px; margin: 0 0 14px; }
+  .proof .claim b { color: var(--text); }
+  .prow { display: grid; grid-template-columns: 170px 1fr auto; gap: 6px 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .prow .name { font-weight: 600; font-size: 14px; }
+  .prow .name .q { display: block; font-weight: 400; }
+  .bar { height: 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--cyan); }
+  .prow .stat { font: 13px var(--mono); text-align: right; white-space: nowrap; }
+  .verdict { font: 600 11px var(--mono); letter-spacing: .04em; }
+  .verdict.supported { color: var(--green); } .verdict.not { color: var(--red); } .verdict.pending { color: var(--dim); }
+  .proof .foot { color: var(--faint); font-size: 12px; margin-top: 10px; }
+  @media (max-width: 640px) { .prow { grid-template-columns: 1fr; } .prow .stat { text-align: left; } }
   footer { color: var(--faint); font-size: 12px; text-align: center; margin-top: 28px; }
   footer a { color: var(--dim); }
 
@@ -130,6 +143,11 @@
   </header>
 
   <section class="kpis" id="kpis" aria-label="Headline numbers"></section>
+
+  <section class="card proof" aria-label="The proof">
+    <div class="card-head"><h2>The proof</h2><span class="num q" id="proof-note"></span></div>
+    <div class="card-body" id="proof"></div>
+  </section>
 
   <section class="grid">
     <div class="card">
@@ -169,9 +187,9 @@
   </section>
 
   <section class="how">
-    <div class="card"><div class="card-body"><b>1 · Scan</b>Six times a day, and whenever its radar spots something, it reads every open Kalshi market and shortlists favourites priced 90–98¢ (the other side of a 2–10¢ longshot), plus any a weather station has already settled.</div></div>
+    <div class="card"><div class="card-body"><b>1 · Scan</b>Six times a day it reads every open Kalshi market in weather, crypto and gas prices. First on the list: favourites where people have been buying the longshot (2–20¢) in the last few hours. Then favourites to buy outright, only where both sides are bidding.</div></div>
     <div class="card"><div class="card-body"><b>2 · Research</b>Live data for each one (weather stations, spot prices, scores). It buys only if the evidence puts the longshot's chance at half its price or less.</div></div>
-    <div class="card"><div class="card-body"><b>3 · Size</b>A quarter of the account per run, more on the biggest edges, and a loss brake that pauses trading after a cluster of losses. Where nobody is selling a settled outcome cheaply, it leaves a bid on Kalshi for longshot buyers to fill.</div></div>
+    <div class="card"><div class="card-body"><b>3 · Collect</b>Mostly by leaving a bid on the favourite, so the next lottery-ticket buyer sells to it: Kalshi's history says that's where the overpayment goes. A quarter of the account per run, and a loss brake that pauses trading after a cluster of losses.</div></div>
   </section>
 
   <footer>Published by the bot after every run. This page holds no keys and can't trade. Not financial advice. <span id="updated"></span></footer>
@@ -211,7 +229,7 @@
       if (shown) return;
       $("last-run").textContent = "No data yet: the first run after setup publishes it.";
       $("kpis").innerHTML = ""; $("console").innerHTML = '<div class="empty">Waiting for the first run.</div>';
-      renderResting([]);
+      renderResting([]); renderProof(null);
     }
   }
 
@@ -252,6 +270,23 @@
     renderTrades(trades);
     setupConsole(runs);
     renderResting(feed.resting || []);
+    renderProof(feed.proof);
+  }
+
+  // The claim, set before the data came in, and how far the bot is toward it.
+  function renderProof(p) {
+    const need = p?.minMarkets || 150, target = p?.targetCents ?? 2;
+    const row = (name, sub, x) => {
+      const n = x?.markets || 0, v = x?.verdict || "collecting";
+      const cls = v === "supported" ? "supported" : v === "not supported" ? "not" : "pending";
+      const edge = x?.edgeCents != null ? `${x.edgeCents >= 0 ? "+" : "−"}${Math.abs(x.edgeCents).toFixed(1)}¢${x.plusMinusCents != null ? ` ± ${x.plusMinusCents.toFixed(1)}¢` : ""} a contract` : "no settled fills yet";
+      return `<div class="prow"><div class="name">${name}<span class="q">${sub}</span></div><div class="bar" role="img" aria-label="${n} of ${need} settled markets"><span style="width:${Math.min(100, n / need * 100)}%"></span></div>`
+        + `<div class="stat">${edge}<br><span class="q">${n} of ${need} markets${x?.winRate != null ? ` · won ${pct(x.winRate)}` : ""}</span> · <span class="verdict ${cls}">${esc(v.toUpperCase().replace(/:.*/, ""))}</span></div></div>`;
+    };
+    $("proof-note").textContent = `target +${target}¢ a contract`;
+    $("proof").innerHTML = `<p class="claim"><b>The claim:</b> people buying 2–20¢ longshots overpay, and a bid resting on the favourite collects it. Set on Nov 2, 2026, before this data came in: the bot's filled bids earn at least +${target}¢ a contract after fees, over ${need} settled markets, with the 95% range above zero.</p>`
+      + row("Resting bids", "filled by longshot buyers", p?.maker) + row("Buying at the ask", "for comparison", p?.taker)
+      + `<p class="foot">Kalshi's own history, Sept 3–Nov 1 (1,727 events): people selling 3–20¢ tickets earned +3¢ to +10¢ a contract; buying favourites at the ask broke even where both sides were bidding. The same test runs again on November alone in early December. Counts only orders from Nov 2 on.</p>`;
   }
 
   const cents = (x) => Math.round(x * 100) + "¢";
@@ -259,7 +294,7 @@
     const up = bids.filter((b) => Date.parse(b.expiresAt) > Date.now());
     $("resting-note").textContent = up.length ? `${up.length} on Kalshi now` : "";
     $("resting").innerHTML = up.length ? up.map((b) => `<li><div class="bet">${esc(b.side.toUpperCase())} · ${esc(b.yesMeans || b.ticker)} · bid ${cents(b.price)} × ${b.contracts}</div><div class="q">${esc(b.question || b.ticker)} · up until ${when(b.expiresAt)} ET${b.p ? ` · claimed p ${b.p.toFixed(3)}` : ""}</div></li>`).join("")
-      : '<li class="empty">None up right now. When an outcome is settled but nobody is selling it cheaply, the bot leaves a bid on Kalshi for a while, and longshot buyers fill it.</li>';
+      : '<li class="empty">None up right now. The bot leaves bids on favourites where people are buying the longshot, and those buyers fill them.</li>';
   }
 
   // The radar sweeps Kalshi every 15 minutes and publishes radar.json when it changes.
@@ -269,7 +304,7 @@
       if (!res.ok) throw new Error(res.status);
       const r = await res.json();
       $("radar-note").textContent = `swept ${when(r.asOf)} ET`;
-      const head = `<li><div>${Number(r.watched).toLocaleString("en-US")} non-sports markets that settle within 48 hours, ${r.weatherMarkets} weather markets checked against their stations.</div><div class="q">${r.runsStartedLast24h} run${r.runsStartedLast24h === 1 ? "" : "s"} started by the radar in the last 24 hours · ${esc(r.decision?.why || "")}</div></li>`;
+      const head = `<li><div>${Number(r.watched).toLocaleString("en-US")} non-sports markets that settle within 48 hours, ${r.weatherMarkets} weather markets checked against their stations.</div><div class="q">${r.runsStartedLast24h} run${r.runsStartedLast24h === 1 ? "" : "s"} started by the radar in the last 24 hours (it no longer starts runs) · ${esc(r.decision?.why || "")}</div></li>`;
       const flags = (r.flagged || []).slice(0, 8).map((f) => `<li><div class="bet">${f.kind === "decided" ? "Settled by readings" : "Fallen favourite"} · ${esc(f.side.toUpperCase())} · ${esc(f.yesMeans || f.ticker)} at ${cents(f.ask)}</div><div class="q">${esc(f.market || f.ticker)} · ${esc(f.note || "")}</div></li>`);
       $("radar").innerHTML = head + (flags.length ? flags.join("") : '<li class="empty">Nothing flagged on the last sweep.</li>');
     } catch {
