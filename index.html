@@ -275,16 +275,16 @@
 
   // The claim, set before the data came in, and how far the bot is toward it.
   function renderProof(p) {
-    const need = p?.minMarkets || 150, target = p?.targetCents ?? 2;
+    const first = p?.minMarkets || 150, most = p?.maxMarkets || 400, target = p?.targetCents ?? 2;
     const row = (name, sub, x) => {
-      const n = x?.markets || 0, v = x?.verdict || "collecting";
+      const n = x?.markets || 0, v = x?.verdict || "collecting", need = x?.needMarkets || first;
       const cls = v === "supported" ? "supported" : v === "not supported" ? "not" : "pending";
       const edge = x?.edgeCents != null ? `${x.edgeCents >= 0 ? "+" : "−"}${Math.abs(x.edgeCents).toFixed(1)}¢${x.plusMinusCents != null ? ` ± ${x.plusMinusCents.toFixed(1)}¢` : ""} a contract` : "no settled fills yet";
       return `<div class="prow"><div class="name">${name}<span class="q">${sub}</span></div><div class="bar" role="img" aria-label="${n} of ${need} settled markets"><span style="width:${Math.min(100, n / need * 100)}%"></span></div>`
         + `<div class="stat">${edge}<br><span class="q">${n} of ${need} markets${x?.winRate != null ? ` · won ${pct(x.winRate)}` : ""}</span> · <span class="verdict ${cls}">${esc(v.toUpperCase().replace(/:.*/, ""))}</span></div></div>`;
     };
     $("proof-note").textContent = `target +${target}¢ a contract`;
-    $("proof").innerHTML = `<p class="claim"><b>The claim:</b> people buying 2–20¢ longshots overpay, and a bid resting on the favourite collects it. Set on Nov 2, 2026, before this data came in: the bot's filled bids earn at least +${target}¢ a contract after fees, over ${need} settled markets, with the 95% range above zero.</p>`
+    $("proof").innerHTML = `<p class="claim"><b>The claim:</b> people buying 2–20¢ longshots overpay, and a bid resting on the favourite collects it. Set on Nov 2, 2026, before this data came in: the bot's filled bids earn at least +${target}¢ a contract after fees, with the 95% range above zero, judged on the first ${first} settled markets, or the first ${most} if ${first} can't tell.</p>`
       + row("Resting bids", "filled by longshot buyers", p?.maker) + row("Buying at the ask", "for comparison", p?.taker)
       + `<p class="foot">Kalshi's own history, Sept 3–Nov 1 (1,727 events): people selling 3–20¢ tickets earned +3¢ to +10¢ a contract; buying favourites at the ask broke even where both sides were bidding. The same test runs again on November alone in early December. Counts only orders from Nov 2 on.</p>`;
   }
