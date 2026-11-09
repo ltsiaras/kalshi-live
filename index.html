@@ -79,6 +79,15 @@
   #chart { width: 100%; height: 290px; display: block; }
   #chart-box .empty { height: 290px; display: grid; place-items: center; padding: 0 16px; }
   #chart text { fill: var(--faint); font: 11px var(--mono); }
+  .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 9px; overflow: hidden; background: rgba(0, 0, 0, .25); }
+  .seg button { border: 0; border-radius: 0; background: transparent; padding: 5px 10px; color: var(--dim); font: 700 11.5px var(--mono); letter-spacing: .04em; }
+  .seg button + button { border-left: 1px solid var(--line-2); }
+  .seg button:hover { color: var(--text); }
+  .seg button[aria-pressed="true"] { background: var(--green-bg); color: var(--green); }
+  .custom { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 10px 16px 0; font: 12px var(--mono); color: var(--dim); }
+  .custom[hidden] { display: none; }
+  .custom input { color-scheme: dark; font: 12px var(--mono); color: var(--text); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 4px 8px; margin-left: 6px; }
+  .chart-note { text-align: right; margin: -4px 0 4px; min-height: 18px; }
 
   /* The latest run, as a funnel. */
   .funnel { display: grid; gap: 11px; }
@@ -217,8 +226,14 @@
 
   <section class="grid">
     <div class="card" style="--accent: var(--green)">
-      <div class="card-head"><h2>Realized P&amp;L</h2><span class="num q" id="chart-note"></span></div>
-      <div class="card-body" id="chart-box"></div>
+      <div class="card-head">
+        <h2>Realized P&amp;L</h2>
+        <div class="seg" id="win" role="group" aria-label="Time window">
+          <button type="button" data-w="all" aria-pressed="true">All</button><button type="button" data-w="30d" aria-pressed="false">30D</button><button type="button" data-w="7d" aria-pressed="false">7D</button><button type="button" data-w="24h" aria-pressed="false">24H</button><button type="button" data-w="custom" aria-pressed="false">Custom</button>
+        </div>
+      </div>
+      <div class="custom" id="custom" hidden><label>From<input type="datetime-local" id="win-from"></label><label>To<input type="datetime-local" id="win-to"></label></div>
+      <div class="card-body"><div class="num q chart-note" id="chart-note"></div><div id="chart-box"></div></div>
     </div>
     <div class="card">
       <div class="card-head"><h2>Latest run</h2><span class="num q" id="funnel-note"></span></div>
@@ -471,14 +486,47 @@
     }
   }
 
-  function drawChart(settled) {
+  // The chart's time window: everything, the last 30 days, 7 days or 24
+  // hours, or a custom range (in the viewer's own time zone). It counts the
+  // P&L of bets that settled inside the window, from zero at its start. The
+  // headline numbers above always count every trade.
+  const SPANS = { all: null, "30d": 30 * 86400e3, "7d": 7 * 86400e3, "24h": 86400e3 };
+  const WIN_LABEL = { all: "all time", "30d": "last 30 days", "7d": "last 7 days", "24h": "last 24 hours", custom: "custom range" };
+  let chartWin = "all", chartSettled = [];
+  const localInput = (ms) => new Date(ms - new Date(ms).getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+  function windowRange() {
+    const now = Date.now();
+    if (chartWin === "custom") {
+      const a = Date.parse($("win-from").value), b = Date.parse($("win-to").value); // no offset: read as local time
+      return { from: Number.isFinite(a) ? a : -Infinity, to: Number.isFinite(b) ? b : now };
+    }
+    return { from: SPANS[chartWin] ? now - SPANS[chartWin] : -Infinity, to: now };
+  }
+  $("win").onclick = (e) => {
+    const b = e.target.closest("[data-w]");
+    if (!b) return;
+    chartWin = b.dataset.w;
+    $("win").querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    $("custom").hidden = chartWin !== "custom";
+    if (chartWin === "custom" && !$("win-from").value) { $("win-from").value = localInput(Date.now() - 7 * 86400e3); $("win-to").value = localInput(Date.now()); }
+    drawChart();
+  };
+  $("win-from").onchange = $("win-to").onchange = () => drawChart();
+
+  function drawChart(settled = chartSettled) {
+    chartSettled = settled;
     const box = $("chart-box");
-    const pts = settled.filter((t) => t.settledAt).sort((a, b) => a.settledAt.localeCompare(b.settledAt));
-    if (!pts.length) { box.innerHTML = '<div class="empty">The first bets are still open. The curve starts when they settle.</div>'; $("chart-note").textContent = ""; return; }
+    const all = settled.filter((t) => t.settledAt).sort((a, b) => a.settledAt.localeCompare(b.settledAt));
+    if (!all.length) { box.innerHTML = '<div class="empty">The first bets are still open. The curve starts when they settle.</div>'; $("chart-note").textContent = ""; return; }
+    const { from, to } = windowRange();
+    const pts = all.filter((t) => { const x = Date.parse(t.settledAt); return x >= from && x <= to; });
+    if (!pts.length) { box.innerHTML = `<div class="empty">No bets settled in the ${WIN_LABEL[chartWin]}.</div>`; $("chart-note").textContent = `$0.00 · ${WIN_LABEL[chartWin]}`; return; }
     box.innerHTML = '<svg id="chart" role="img" aria-label="Cumulative profit and loss over time"></svg>';
     const svg = $("chart");
     let cum = 0;
-    const series = [{ x: Date.parse(pts[0].settledAt) - 3600e3, y: 0 }, ...pts.map((t) => ({ x: Date.parse(t.settledAt), y: (cum += t.pnl || 0), t }))];
+    const start = Number.isFinite(from) ? from : Date.parse(pts[0].settledAt) - 3600e3;
+    const end = Math.max(Math.min(to, Date.now()), Date.parse(pts.at(-1).settledAt));
+    const series = [{ x: start, y: 0 }, ...pts.map((t) => ({ x: Date.parse(t.settledAt), y: (cum += t.pnl || 0), t })), { x: end, y: cum }];
     const W = svg.clientWidth || 760, H = 290, L = 56, R = 14, T = 14, B = 26;
     const xs = series.map((p) => p.x), ys = series.map((p) => p.y);
     const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 3600e3);
@@ -488,7 +536,7 @@
     const step = series.map((p, i) => (i ? `H${X(p.x).toFixed(1)}V${Y(p.y).toFixed(1)}` : `M${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`)).join("");
     const area = `${step}V${Y(Math.min(0, yMin)).toFixed(1)}H${X(series[0].x).toFixed(1)}Z`;
     const up = cum >= 0, c = up ? "#2ee88a" : "#ff5a6a";
-    const ticks = [yMin, 0, yMax].filter((v, i, a) => a.indexOf(v) === i);
+    const ticks = [0, yMin, yMax].filter((v, i, a) => a.indexOf(v) === i && a.slice(0, i).every((u) => Math.abs(Y(u) - Y(v)) >= 16)); // labels clear of each other
     const lastP = series.at(-1);
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.innerHTML = `
@@ -500,9 +548,9 @@
       <text x="${L}" y="${H - 6}">${when(new Date(x0).toISOString())}</text><text x="${W - R}" y="${H - 6}" text-anchor="end">${when(new Date(x1).toISOString())}</text>
       <path d="${area}" fill="url(#g)"/>
       <path d="${step}" fill="none" stroke="${c}" stroke-width="2.4" filter="url(#glow)"/>
-      ${series.slice(1).map((p) => `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="3.5" fill="${p.t.status === "won" ? "#2ee88a" : "#ff5a6a"}" stroke="#04060a" stroke-width="1.5"><title>${esc((p.t.question || p.t.ticker) + " · " + usd(p.t.pnl, true))}</title></circle>`).join("")}
+      ${series.filter((p) => p.t).map((p) => `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="3.5" fill="${p.t.status === "won" ? "#2ee88a" : "#ff5a6a"}" stroke="#04060a" stroke-width="1.5"><title>${esc((p.t.question || p.t.ticker) + " · " + usd(p.t.pnl, true))}</title></circle>`).join("")}
       <circle cx="${X(lastP.x)}" cy="${Y(lastP.y)}" r="9" fill="${c}" opacity=".18"/><circle cx="${X(lastP.x)}" cy="${Y(lastP.y)}" r="5" fill="${c}" filter="url(#glow)"/>`;
-    $("chart-note").textContent = `${usd(cum, true)} over ${pts.length} settled bet${pts.length === 1 ? "" : "s"}`;
+    $("chart-note").textContent = `${usd(cum, true)} over ${pts.length} settled bet${pts.length === 1 ? "" : "s"} · ${WIN_LABEL[chartWin]}`;
   }
 
   let tab = "all";
